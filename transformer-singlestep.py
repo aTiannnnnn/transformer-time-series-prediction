@@ -102,10 +102,13 @@ def create_inout_sequences(input_data, input_window ,output_window):
     # where block_len = input_window + output_window
 
     for i in range( block_num ):
-        train_seq = input_data[i : i + input_window]
-        train_label = input_data[i + output_window : i + input_window + output_window]
+        train_seq = input_data[i : i + input_window] # (input_window,)
+        train_label = input_data[i + output_window : i + input_window + output_window] # (input_window,)
         inout_seq.append((train_seq ,train_label))
 
+    # print("train_seq.shape: ", train_seq.shape)
+    # print("train_label.shape: ", train_label.shape)
+    # print(np.array(inout_seq).shape)
     return torch.FloatTensor(np.array(inout_seq))
 
 def get_data():
@@ -117,33 +120,58 @@ def get_data():
     from sklearn.preprocessing import MinMaxScaler
     
     #loading weather data from a file
-    #from pandas import read_csv
-    #series = read_csv('daily-min-temperatures.csv', header=0, index_col=0, parse_dates=True, squeeze=True)
+    # from pandas import read_csv
+    # series = read_csv('daily-min-temperatures.csv', header=0, index_col=0, parse_dates=True, squeeze=True)
+    # amplitude = series.values[:]
     
     # looks like normalizing input values curtial for the model
     scaler = MinMaxScaler(feature_range=(-1, 1)) 
-    #amplitude = scaler.fit_transform(series.to_numpy().reshape(-1, 1)).reshape(-1)
+    # amplitude = scaler.fit_transform(series.to_numpy().reshape(-1, 1)).reshape(-1)
     amplitude = scaler.fit_transform(amplitude.reshape(-1, 1)).reshape(-1)
 
-    sampels = int(len(time) * train_size) # use a parameter to control training size
+    sampels = int(len(amplitude) * train_size) # use a parameter to control training size
     train_data = amplitude[:sampels]
     test_data = amplitude[sampels:]
 
     # convert our train data into a pytorch train tensor
-    #train_tensor = torch.FloatTensor(train_data).view(-1)
+    # train_data = torch.FloatTensor(train_data).view(-1)
 
-    train_sequence = create_inout_sequences( train_data,input_window ,output_window)
+    train_data = create_inout_sequences(train_data,input_window ,output_window)
     '''
     train_sequence = train_sequence[:-output_window] # todo: fix hack? -> din't think this through, looks like the last n sequences are to short, so I just remove them. Hackety Hack..
     # looks like maybe solved
     '''
-    #test_data = torch.FloatTensor(test_data).view(-1) 
+    # test_data = torch.FloatTensor(test_data).view(-1) 
     test_data = create_inout_sequences(test_data,input_window,output_window)
     '''
     test_data = test_data[:-output_window] # todo: fix hack?
     '''
     # shape with (block , sql_len , 2 )
-    return train_sequence.to(device),test_data.to(device)
+    # print("amplitude shape: ",amplitude.shape)
+    # print('train_data shape: ',train_data.shape)
+    # print('test_data shape: ',test_data.shape)
+    return train_data.to(device),test_data.to(device)
+
+def get_temperature_data():
+    
+    from sklearn.preprocessing import MinMaxScaler
+    from pandas import read_csv
+    
+    scaler = MinMaxScaler(feature_range=(-1, 1))
+    
+    csv_data = read_csv('daily-min-temperatures.csv', header=0, index_col=0, parse_dates=True, squeeze=True)
+    series = csv_data.values[:]
+    amplitude = scaler.fit_transform(series.reshape(-1, 1)).reshape(-1)
+    sampels = int(len(amplitude) * train_size)
+    train_data = amplitude[:sampels]
+    test_data = amplitude[sampels:]
+    
+    train_data = create_inout_sequences(train_data,input_window ,output_window)
+    test_data = create_inout_sequences(test_data,input_window,output_window)
+    
+    return train_data.to(device),test_data.to(device)
+    
+    
 
 
 def get_batch(input_data, i , batch_size):
@@ -163,6 +191,7 @@ def train(train_data):
 
     for batch, i in enumerate(range(0, len(train_data), batch_size)):  # Now len-1 is not necessary
         # data and target are the same shape with (input_window,batch_len,1)
+        
         data, targets = get_batch(train_data, i , batch_size)
         optimizer.zero_grad()
         output = model(data)
@@ -250,17 +279,30 @@ def evaluate(eval_model, data_source):
             total_loss += len(data[0]) * criterion(output, targets).cpu().item()
     return total_loss / len(data_source)
 
-train_data, val_data = get_data()
+# train_data, val_data = get_data()
+train_data, val_data = get_temperature_data() # (num_blocks, 2, block_size)
+# print("train_data size : ",train_data.shape)
+# print("val_data size : ",val_data.shape)
+# input, target = get_batch(train_data, 0, 7)
+# print("input size : ",input.shape) # (input_window,batch_len,1)
+# print("target size : ",target.shape)
+
+
+
 model = TransAm().to(device)
 
+# get the number of model parameters
+pytorch_total_params = sum(p.numel() for p in model.parameters())
+print("Total number of parameters : ",pytorch_total_params)
+
 criterion = nn.MSELoss()
-lr = 0.005 
+lr = 0.0005 
 #optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95)
 
 best_val_loss = float("inf")
-epochs = 10 # The number of epochs
+epochs = 50 # The number of epochs
 best_model = None
 
 for epoch in range(1, epochs + 1):
