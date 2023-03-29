@@ -5,6 +5,8 @@ import time
 import math
 from matplotlib import pyplot
 
+import copy
+
 torch.manual_seed(0)
 np.random.seed(0)
 
@@ -188,7 +190,9 @@ def train(train_data):
     model.train() # Turn on the train mode \o/
     total_loss = 0.
     start_time = time.time()
-
+    
+    total_loss_all_batches = 0
+    
     for batch, i in enumerate(range(0, len(train_data), batch_size)):  # Now len-1 is not necessary
         # data and target are the same shape with (input_window,batch_len,1)
         
@@ -201,6 +205,7 @@ def train(train_data):
         optimizer.step()
 
         total_loss += loss.item()
+        total_loss_all_batches += loss.item()
         log_interval = int(len(train_data) / batch_size / 5)
         if batch % log_interval == 0 and batch > 0:
             cur_loss = total_loss / log_interval
@@ -213,6 +218,8 @@ def train(train_data):
                     cur_loss, math.exp(cur_loss)))
             total_loss = 0
             start_time = time.time()
+            
+    return total_loss_all_batches / (batch + 1)
 
 def plot_and_loss(eval_model, data_source,epoch):
     eval_model.eval() 
@@ -265,6 +272,32 @@ def predict_future(eval_model, data_source,steps):
     pyplot.savefig('graph/transformer-future%d.png'%steps)
     pyplot.show()
     pyplot.close()
+    
+def predict_future_mod(eval_model, data_source,steps, epoch):
+    eval_model.eval() 
+    data, _ = get_batch(data_source , 0 , 1)
+    truth = copy.deepcopy(data.cpu().view(-1))
+    with torch.no_grad():
+        for i in range(0, steps):    
+            _, target = get_batch(data_source, i , 1) # one-step forecast
+            truth = torch.cat((truth, target[-1].view(-1).cpu()), 0)        
+            output = eval_model(data[-input_window:])
+            # (seq-len , batch-size , features-num)
+            # input : [ m,m+1,...,m+n ] -> [m+1,...,m+n+1]
+            data = torch.cat((data, output[-1:])) # [m,m+1,..., m+n+1]
+
+    data = data.cpu().view(-1)
+    
+    # I used this plot to visualize if the model pics up any long therm structure within the data.
+    pyplot.plot(data,color="red")       
+    pyplot.plot(truth,color="blue", linestyle=':')    
+    pyplot.grid(True, which='both')
+    pyplot.axhline(y=0, color='k')
+    # save the plot
+    pyplot.savefig('graph_new/transformer-future%03d.png'%epoch)
+    pyplot.show()
+    pyplot.close()
+
         
 
 def evaluate(eval_model, data_source):
@@ -302,21 +335,21 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95)
 
 best_val_loss = float("inf")
-epochs = 50 # The number of epochs
+epochs = 1 # The number of epochs
 best_model = None
 
 for epoch in range(1, epochs + 1):
     epoch_start_time = time.time()
-    train(train_data)
-    if ( epoch % 5 == 0 ):
+    train_loss = train(train_data)
+    if ( epoch % 1 == 0 ):
         val_loss = plot_and_loss(model, val_data,epoch)
-        predict_future(model, val_data,200)
+        predict_future_mod(model, val_data,600, epoch)
     else:
         val_loss = evaluate(model, val_data)
    
     print('-' * 89)
-    print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.5f} | valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
-                                     val_loss, math.exp(val_loss)))
+    print('| end of epoch {:3d} | time: {:5.2f}s | train loss {:5.5f} | valid loss {:5.5f} | valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
+                                     train_loss, val_loss, math.exp(val_loss)))
     print('-' * 89)
 
     #if val_loss < best_val_loss:
