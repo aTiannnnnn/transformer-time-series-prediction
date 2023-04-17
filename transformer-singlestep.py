@@ -1,3 +1,8 @@
+import os
+# Get the path to the current file
+current_file_path = os.path.dirname(__file__)
+os.chdir(current_file_path)
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -236,16 +241,17 @@ def plot_and_loss(eval_model, data_source,epoch):
             truth = torch.cat((truth, target[-1].view(-1).cpu()), 0)
             
     #test_result = test_result.cpu().numpy() -> no need to detach stuff.. 
-    len(test_result)
-
+    # len(test_result)
+    val_loss = total_loss / i
     pyplot.plot(test_result,color="red")
-    pyplot.plot(truth[:500],color="blue")
-    pyplot.plot(test_result-truth,color="green")
+    pyplot.plot(truth,color="blue")
+    pyplot.title('validation mse loss: %5f'%val_loss)
+    # pyplot.plot(test_result-truth,color="green")
     pyplot.grid(True, which='both')
     pyplot.axhline(y=0, color='k')
-    pyplot.savefig('graph/transformer-epoch%d.png'%epoch)
+    pyplot.savefig('graph_one_step_prediction/transformer-epoch-%03d.png'%epoch)
     pyplot.close()
-    return total_loss / i
+    return val_loss
 
 
 # predict the next n steps based on the input data 
@@ -288,13 +294,14 @@ def predict_future_mod(eval_model, data_source,steps, epoch):
 
     data = data.cpu().view(-1)
     
+     
     # I used this plot to visualize if the model pics up any long therm structure within the data.
     pyplot.plot(data,color="red")       
     pyplot.plot(truth,color="blue", linestyle=':')    
     pyplot.grid(True, which='both')
     pyplot.axhline(y=0, color='k')
     # save the plot
-    pyplot.savefig('graph_new/transformer-future%03d.png'%epoch)
+    pyplot.savefig('graph_new/transformer-epoch-%03d.png'%epoch)
     pyplot.show()
     pyplot.close()
 
@@ -329,21 +336,21 @@ pytorch_total_params = sum(p.numel() for p in model.parameters())
 print("Total number of parameters : ",pytorch_total_params)
 
 criterion = nn.MSELoss()
-lr = 0.0005 
+lr = 0.001 
 #optimizer = torch.optim.SGD(model.parameters(), lr=lr)
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95)
 
 best_val_loss = float("inf")
-epochs = 1 # The number of epochs
+epochs = 100 # The number of epochs
 best_model = None
 
 for epoch in range(1, epochs + 1):
     epoch_start_time = time.time()
     train_loss = train(train_data)
-    if ( epoch % 1 == 0 ):
+    if ( epoch % 5 == 0 ):
         val_loss = plot_and_loss(model, val_data,epoch)
-        predict_future_mod(model, val_data,600, epoch)
+        # predict_future_mod(model, val_data,600, epoch)
     else:
         val_loss = evaluate(model, val_data)
    
